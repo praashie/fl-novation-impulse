@@ -4,8 +4,28 @@ class ImpulseEncoder(MIDIControl):
     def updateValueFromEvent(self, event):
         self.value = event.controlVal - 0x40
 
+class ImpulseSoloMode(MIDIControl):
+    _mixermode_callback = None
+    onSoloModeCallback = None
+
+    def callback(self, control, event):
+        if self.value == self.value_previous:
+            self._mixermode_callback(self, event)
+        else:
+            self.onSoloModeCallback(self, event)
+
+    def set_callback(self, callback):
+        self._mixermode_callback = callback
+
+    def setValue(self, value):
+        self.value = value
+        self.sendFeedback(value)
+
+    def isSoloEnabled(self):
+        return self.value == 0
+
 class ControllerMode:
-    def __init__(self, displayName, source, feedback, page=None):
+    def __init__(self, displayName, source, feedback, page=None, exitOnPage=False):
         self.displayName = displayName
         self.sourceControl = source
         self.feedbackControl = feedback
@@ -13,13 +33,14 @@ class ControllerMode:
 
         self.callback = None
         self.pageCallback = None
+        self.exitOnPage = exitOnPage
 
         self.sourceControl.set_callback(self.onControl)
         if self.pageSourceControl:
             self.pageSourceControl.set_callback(self.onControl)
 
     def feedback(self):
-        self.feedbackControl.sendFeedback(0)
+        self.feedbackControl.sendFeedback(self.feedbackControl.value)
 
     def onControl(self, control, event):
         if control == self.sourceControl:
@@ -47,11 +68,16 @@ class ImpulseModeSwitcher:
         self.previous = self.mode
         self.mode = mode
         if callable(self.onModeChangeCallback):
+            control = mode.sourceControl
             self.onModeChangeCallback(mode, event)
         self.set(mode)
 
     def onPageChange(self, mode, control, event):
+        if self.mode.exitOnPage:
+            return self.onModeButton(mode, control, event)
+
         if callable(self.onPageChangeCallback):
+            control = mode.pageSourceControl
             self.onPageChangeCallback(control, event)
         self.set(self.mode)
 
@@ -61,14 +87,16 @@ class ImpulseModeSwitcher:
 
 controls = []
 
-faders = [MIDIControl(channel=0, number=i, name='Fader_{}'.format(i + 1))
-        for i in range(9)]
+faders = [MIDIControl(channel=0, ccNumber=i, index=i,
+    name='Fader_{}'.format(i + 1)) for i in range(9)]
 
-encoders = [ImpulseEncoder(channel=1, number=i, name='Encoder_{}'.format(i + 1))
-        for i in range(8)]
+encoders = [ImpulseEncoder(channel=1, ccNumber=i, index=i,
+    name='Encoder_{}'.format(i + 1)) for i in range(8)]
 
-trackButtons = [MIDIControl(channel=0, number=i+0x09, name='TrackButton_{}'.format(i))
-        for i in range(9)]
+trackButtons = [MIDIControl(channel=0, ccNumber=i+0x09, index=i,
+    name='TrackButton_{}'.format(i)) for i in range(9)]
+
+modwheel = MIDIControl(channel=2, ccNumber=0x01, name='ModWheel')
 
 controls.extend(faders)
 controls.extend(encoders)
@@ -93,13 +121,18 @@ _control_dict = {
         "mixerTrackNext": (0, 0x25),
         "mixerTrackPrevious": (0, 0x26),
         "faderMidiMode": (0, 0x21),
-        "faderMixerMode": (0, 0x22),
-        "shift": (0, 0x27)
+        "shift": (0, 0x27),
+        "preview": (0, 0x29)
 }
 
 for _name, _arguments in _control_dict.items():
     mc = MIDIControl(*_arguments, name=_name)
     _namespace[_name] = mc
     controls.append(mc)
+
+faderMixerMode = ImpulseSoloMode(0, 0x22, name="faderMixerSoloMode")
+faderMixerMode.setValue(1) # Set Mute mode by default
+
+controls.append(faderMixerMode)
 
 transport = [_namespace[name] for name in ("rewind", "forward", "stop", "play", "loop", "record")]
