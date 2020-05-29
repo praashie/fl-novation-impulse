@@ -24,66 +24,35 @@ class ImpulseSoloMode(MIDIControl):
     def isSoloEnabled(self):
         return self.value == 0
 
-class ControllerMode:
-    def __init__(self, displayName, source, feedback, page=None, exitOnPage=False):
-        self.displayName = displayName
-        self.sourceControl = source
-        self.feedbackControl = feedback
-        self.pageSourceControl = page
+class ImpulsePad(MIDIControl):
+    _last_state = 0x7F
+    current_color = 0
+    flashing = False
 
-        self.callback = None
-        self.pageCallback = None
-        self.exitOnPage = exitOnPage
+    def setColor(self, red=0, green=0, flash=None):
+        red = red & 0b11
+        green = green & 0b11
+        if flash is not None:
+            self.flashing = flash
 
-        self.sourceControl.set_callback(self.onControl)
-        if self.pageSourceControl:
-            self.pageSourceControl.set_callback(self.onControl)
+        # Color bits:
+        # _BBF_RR
+        self.current_color = (green << 4) + red
+        self._update()
 
-    def feedback(self):
-        self.feedbackControl.sendFeedback(self.feedbackControl.value)
+    def _update(self):
+        new_state = self.current_color + self.flashing * 0x08
+        if self._last_state == new_state:
+            return
+        self.sendFeedback(new_state)
+        self._last_state = new_state
 
-    def onControl(self, control, event):
-        if control == self.sourceControl:
-            self.callback(self, control, event)
-        elif control == self.pageSourceControl:
-            self.pageCallback(self, control, event)
-
-class ImpulseModeSwitcher:
-    def __init__(self, modes, invert=False):
-        self.onModeChangeCallback = None
-        self.onPageChangeCallback = None
-        self.invert = invert
-
-        self.mode = None
-
-        for cmode in modes:
-            if self.invert and cmode.pageSourceControl:
-                cmode.callback = self.onPageChange
-                cmode.pageCallback = self.onModeButton
-            else:
-                cmode.callback = self.onModeButton
-                cmode.pageCallback = self.onPageChange
-
-    def onModeButton(self, mode, control, event):
-        self.previous = self.mode
-        self.mode = mode
-        if callable(self.onModeChangeCallback):
-            control = mode.sourceControl
-            self.onModeChangeCallback(mode, event)
-        self.set(mode)
-
-    def onPageChange(self, mode, control, event):
-        if self.mode.exitOnPage:
-            return self.onModeButton(mode, control, event)
-
-        if callable(self.onPageChangeCallback):
-            control = mode.pageSourceControl
-            self.onPageChangeCallback(control, event)
-        self.set(self.mode)
-
-    def set(self, mode):
-        self.mode = mode
-        mode.feedback()
+    def setFlash(self, flash=None):
+        if flash is None:
+            self.flashing = not self.flashing
+        else:
+            self.flashing = flash
+        self._update()
 
 controls = []
 
@@ -96,11 +65,15 @@ encoders = [ImpulseEncoder(channel=1, ccNumber=i, index=i,
 trackButtons = [MIDIControl(channel=0, ccNumber=i+0x09, index=i,
     name='TrackButton_{}'.format(i)) for i in range(9)]
 
+clipPads = [ImpulsePad(channel=0, ccNumber=i+0x3C, index=i,
+    name='ClipPad_{}'.format(i + 1)) for i in range(8)]
+
 modwheel = MIDIControl(channel=2, ccNumber=0x01, name='ModWheel')
 
 controls.extend(faders)
 controls.extend(encoders)
 controls.extend(trackButtons)
+controls.extend(clipPads)
 
 _namespace = globals()
 

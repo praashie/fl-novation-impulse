@@ -2,15 +2,11 @@
 # url=
 # Author: Praash
 
-# Tweakable options
-
-DEBUG = False # causes lag!
-LCD_TEST = False
+# Tweak these options to your liking.
 
 # Change pages without Shift, hold Shift to change encoder/fader modes
 INVERT_PAGE_SHIFT = True
 
-# Use smooth scaling with custom encoder mapping?
 ENCODER_SCALE = 1 / 200.0
 
 ENCODER_FINETUNE = False
@@ -18,7 +14,11 @@ ENCODER_FINETUNE_THRESHOLD = 1 # Maximum speed to use fine tuning with
 ENCODER_SCALE_FINE = 1 / 400.0
 FREE_ENCODER_CC_START = 20
 
-VIRTUAL_CHANNEL = 15
+# minimum delay between LCD updates
+LCD_THROTTLE = 0.1
+
+LCD_TEST = False
+DEBUG = False # causes lag!
 
 import arrangement
 import channels
@@ -37,6 +37,8 @@ from flatmate.midi import setEventMidiChannel
 from flatmate.mixer import MixerController
 
 import controls
+from modes import EncoderMode, FaderMode, ImpulseModeSwitcher
+
 import rec
 
 h = bytes.fromhex
@@ -45,39 +47,11 @@ SYSEX_HEADER = h("F0 00 20 29 67")
 IMPULSE_INIT = h("06 01 01 01")
 IMPULSE_DEINIT = h("06 00 00 00")
 
-class EncoderMode(controls.ControllerMode):
-    pass
-
-EncoderMode.Free = EncoderMode("FreeCtrl",
-            source=controls.encoderPluginMode,
-            feedback=controls.encoderPluginMode,
-            page=controls.encoderPageUp)
-EncoderMode.Mixer = EncoderMode("Mixer",
-            source=controls.encoderMixerMode,
-            feedback=controls.encoderMixerMode)
-EncoderMode.MixerPlugin = EncoderMode("MixerPlug",
-            source=controls.encoderMidiMode,
-            feedback=controls.encoderMixerMode,
-            page=controls.encoderPageDown)
-
-class FaderMode(controls.ControllerMode):
-    pass
-
-FaderMode.Mixer = FaderMode("Mixer",
-            source=controls.faderMixerMode,
-            feedback=controls.faderMixerMode,
-            page=controls.mixerBankNext)
-FaderMode.Free = FaderMode("FreeCtrl",
-            source=controls.faderMidiMode,
-            feedback=controls.faderMidiMode,
-            page=controls.mixerBankPrevious,
-            exitOnPage=True)
-
 class ImpulseBase:
     def __init__(self):
         for control in controls.controls:
             control.verbose = DEBUG
-            Hooker.include(control)
+            control.throttling = True
 
         for t in controls.transport:
             t.set_callback(self.onTransport)
@@ -94,23 +68,26 @@ class ImpulseBase:
             else:
                 b.set_callback(self.onTrackButton)
 
-        controls.modwheel.set_callback(self.onModWheel)
+        for p in controls.clipPads:
+            p.set_callback(self.onClipPad)
 
-        self.encoderSwitcher = controls.ImpulseModeSwitcher(
+        self.encoderSwitcher = ImpulseModeSwitcher(
                 modes=(EncoderMode.Free, EncoderMode.Mixer, EncoderMode.MixerPlugin),
                 invert=INVERT_PAGE_SHIFT)
         self.encoderSwitcher.set(EncoderMode.Free)
         self.encoderSwitcher.onModeChangeCallback = self.onSwitcherModeChange
 
-        self.faderSwitcher = controls.ImpulseModeSwitcher(
+        self.faderSwitcher = ImpulseModeSwitcher(
                 modes=(FaderMode.Mixer, FaderMode.Free),
                 invert=INVERT_PAGE_SHIFT)
         self.faderSwitcher.set(FaderMode.Mixer)
         self.faderSwitcher.onModeChangeCallback = self.onSwitcherModeChange
         self.faderSwitcher.onPageChangeCallback = self.onMixerPageChange
 
-        self.lcd_text = MidiLCD(sysex_prefix=SYSEX_HEADER + h('08'), width=8)
-        self.lcd_value = MidiLCD(sysex_prefix=SYSEX_HEADER + h('09'), width=3)
+        self.lcd_text = MidiLCD(sysex_prefix=SYSEX_HEADER + h('08'),
+                width=8, minInterval=LCD_THROTTLE)
+        self.lcd_value = MidiLCD(sysex_prefix=SYSEX_HEADER + h('09'),
+                width=3, minInterval=LCD_THROTTLE)
 
         self.timeDisplay = False
 
@@ -122,8 +99,6 @@ class ImpulseBase:
         controls.mixerTrackPrevious.set_callback(self.onMixerTrackButton)
 
         self.mixer = MixerController(track_width=8)
-
-        self.idleTasks = []
 
         self.soloMode = False
         controls.faderMixerMode.onSoloModeCallback = self.onSoloModeButton
@@ -259,24 +234,15 @@ class ImpulseBase:
     def onModifierButton(self, control, event):
         event.handled = True
 
-    def onModWheel(self, control, event):
-        setEventMidiChannel(event, 0)
-        device.processMIDICC(event)
-        event.handled = True
-
     def onMixerPageChange(self, control, event):
-        print("MixerPageChange: {}".format(control.name))
         if control == controls.mixerBankNext:
-            print("Bank Up!")
             self.mixer.bankUp()
             self.mixer.selectBank(focus=self.mixer.track_width)
         elif control == controls.mixerBankPrevious:
-            print("Bank Down!")
             self.mixer.bankDown()
             self.mixer.selectBank()
 
-        self.idleTasks.append(lambda:
-            self.lcdValueText(self.mixer.bank_start))
+            self.lcdValueText(self.mixer.bank_start)
 
         self.lcdText(self.mixer.tracks[0].getName())
 
@@ -328,10 +294,8 @@ class ImpulseBase:
             controller.sendFeedback(percentage)
 
     def OnIdle(self):
-        for t in self.idleTasks:
-            t()
-        self.idleTasks.clear()
         self.refreshTrackLeds()
+        self.refreshPads()
 
     def OnRefresh(self, flags):
         if flags & (Flags.HW_Dirty.LEDs):
@@ -341,6 +305,13 @@ class ImpulseBase:
         for i, track in enumerate(self.mixer.tracks):
             self.refreshTrackLed(i, track)
 
+    def refreshPads(self):
+        for pad in controls.clipPads:
+            if controls.shift.value and pad.index == 4:
+                pad.setColor(green=2, flash=False)
+            else:
+                pad.setColor(red=0, green=0, flash=False)
+
     def refreshTrackLed(self, index, track):
         if self.soloMode:
             value = (track.getPeaks() > 0.1)
@@ -348,13 +319,26 @@ class ImpulseBase:
             value = 1 - track.isMuted()
         controls.trackButtons[index].sendFeedback(value)
 
+    def onClipPad(self, control, event):
+        if control.index == 4 and controls.shift.value:
+            transport.globalTransport(midi.FPT_TapTempo, control.value)
+        event.handled = True
+
+    def OnPitchBend(self, event):
+        # Sets the port to 0 too, to preserve universal pitch bending
+        event.midiChanEx = event.midiChan
+
 impulse = ImpulseBase()
 
-if DEBUG:
-    Hooker.OnNoteOn.attach(snippets.EventDumper("EventDumper"))
-    Hooker.include(snippets.refreshDumper)
 
 Hooker.include(impulse)
-# Hooker.include(snippets.sustainFix)
+
+if DEBUG:
+    Hooker.OnControlChange.attach(snippets.EventDumper("OnControlChange"))
+    Hooker.include(snippets.refreshDumper)
+
+Hooker.include(snippets.sustainFix)
 
 OnUpdateBeatIndicator = impulse.OnUpdateBeatIndicator
+
+del OnDirtyMixerTrack
