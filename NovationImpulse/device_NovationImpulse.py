@@ -1,6 +1,8 @@
 # name=Novation Impulse 25/49/61
 # url=
 # Author: Praash
+# https://github.com/praashie/fl-novation-impulse
+
 
 # Tweak these options to your liking.
 

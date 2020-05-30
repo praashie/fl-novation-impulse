@@ -1,3 +1,5 @@
+# https://github.com/praashie/fl-novation-impulse
+
 from flatmate.control import MIDIControl
 
 class ImpulseEncoder(MIDIControl):
