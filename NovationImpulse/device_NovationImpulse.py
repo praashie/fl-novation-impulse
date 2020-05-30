@@ -1,5 +1,5 @@
 # name=Novation Impulse 25/49/61
-# url=
+# url=https://forum.image-line.com/viewtopic.php?f=1994&t=229878
 # Author: Praash
 # https://github.com/praashie/fl-novation-impulse
 
