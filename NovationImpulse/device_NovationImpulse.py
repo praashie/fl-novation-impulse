@@ -258,6 +258,7 @@ class ImpulseBase:
             return
         elif controls.shift.value:
             track.select(single=True)
+            self.selectMixerTrackChannel(track.index)
         elif self.soloMode:
             track.solo(flags=midi.fxSoloModeWithSourceTracks + midi.fxSoloModeWithDestTracks)
         else:
@@ -329,6 +330,18 @@ class ImpulseBase:
     def OnPitchBend(self, event):
         # Sets the port to 0 too, to preserve universal pitch bending
         event.midiChanEx = event.midiChan
+
+    def selectMixerTrackChannel(self, track_index):
+        current_channel = channels.channelNumber()
+        channel_count = channels.channelCount()
+
+        for i in range(channel_count):
+            # If multiple channels match, select the next matching one
+            channel_index = (current_channel + i) % channel_count
+            if channels.getTargetFxTrack(channel_index) == track_index:
+                channels.selectChannel(channel_index, 1)
+                return channel_index
+
 
 impulse = ImpulseBase()
 
