@@ -4,9 +4,13 @@ This script is under development.
 
 # Installation
 
-[Download](https://github.com/praashie/fl-novation-impulse/releases) the latest release.
-Copy the folder `NovationImpulse` under your user data script folder.
 Download and install [FLatmate](https://github.com/praashie/flatmate).
+
+## Using Git or GitHub Desktop:
+Clone the repository directly under your user data script folder.
+
+## Manually
+[Download](https://github.com/praashie/fl-novation-impulse/releases) the latest release, and extract the zip file under your user data script folder. Make sure to create a new folder.
 
 # Usage
 
