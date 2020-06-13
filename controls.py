@@ -1,10 +1,15 @@
 # https://github.com/praashie/fl-novation-impulse
 
+from time import time
 from flatmate.control import MIDIControl
+from flatmate.hooker import Hooker
 
 class ImpulseEncoder(MIDIControl):
     def updateValueFromEvent(self, event):
         self.value = event.controlVal - 0x40
+        event.inEv = self.value
+        event.outEv = self.value
+        event.isIncrement = True
 
 class ImpulseSoloMode(MIDIControl):
     _mixermode_callback = None
@@ -56,6 +61,50 @@ class ImpulsePad(MIDIControl):
             self.flashing = flash
         self._update()
 
+class DoubleClickHoldControl(MIDIControl):
+    lastTime = None
+    _real_previous = 0
+    holding = False
+    timeout = 0.3
+
+    def updateValueFromEvent(self, event):
+        self.value = event.controlVal
+        high_edge = (self.value > self._real_previous)
+        t = time()
+        self._real_previous = self.value
+        if high_edge:
+            if self.holding:
+                self.holding = False
+            elif (t - (self.lastTime or 0)) < self.timeout:
+                self.holding = True
+            else:
+                self.lastTime = t
+            self.sendFeedback(self.holding)
+        if self.holding:
+            self.value = 1
+
+class ProgramChangeDataKnobWrapper:
+    def __init__(self, channel):
+        self.channel = channel
+        self.current_program = None
+        self.value = 0
+        self.index = 9001
+        self.callback = None
+
+        Hooker.include(self)
+
+    def OnProgramChange(self, event):
+        if event.midiChan == self.channel:
+            if self.current_program is not None:
+                self.value = event.progNum - self.current_program
+                if self.callback:
+                    self.callback(self, event)
+            self.current_program = event.progNum
+            event.handled = True
+
+    def set_callback(self, func):
+        self.callback = func
+
 controls = []
 
 faders = [MIDIControl(channel=0, ccNumber=i, index=i,
@@ -64,8 +113,12 @@ faders = [MIDIControl(channel=0, ccNumber=i, index=i,
 encoders = [ImpulseEncoder(channel=1, ccNumber=i, index=i,
     name='Encoder_{}'.format(i + 1)) for i in range(8)]
 
+dataKnob = ProgramChangeDataKnobWrapper(channel=0)
+
 trackButtons = [MIDIControl(channel=0, ccNumber=i+0x09, index=i,
-    name='TrackButton_{}'.format(i)) for i in range(9)]
+    name='TrackButton_{}'.format(i)) for i in range(8)]
+
+masterButton = DoubleClickHoldControl(channel=0, ccNumber=0x09 + 8, index=8, name='MasterButton')
 
 clipPads = [ImpulsePad(channel=0, ccNumber=i+0x3C, index=i,
     name='ClipPad_{}'.format(i + 1)) for i in range(8)]
@@ -110,4 +163,12 @@ faderMixerMode.setValue(1) # Set Mute mode by default
 
 controls.append(faderMixerMode)
 
-transport = [_namespace[name] for name in ("rewind", "forward", "stop", "play", "loop", "record")]
+transport = [
+    rewind,
+    forward,
+    stop,
+    play,
+    loop,
+    record,
+    masterButton
+]
