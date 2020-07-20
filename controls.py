@@ -1,7 +1,6 @@
 # https://github.com/praashie/fl-novation-impulse
 
-from time import time
-from flatmate.control import MIDIControl
+from flatmate.control import MIDIControl, MIDIButton
 from flatmate.hooker import Hooker
 
 class ImpulseEncoder(MIDIControl):
@@ -61,27 +60,19 @@ class ImpulsePad(MIDIControl):
             self.flashing = flash
         self._update()
 
-class DoubleClickHoldControl(MIDIControl):
-    lastTime = None
-    _real_previous = 0
+class DoubleClickHoldControl(MIDIButton):
     holding = False
-    timeout = 0.3
 
     def updateValueFromEvent(self, event):
-        self.value = event.controlVal
-        high_edge = (self.value > self._real_previous)
-        t = time()
-        self._real_previous = self.value
-        if high_edge:
-            if self.holding:
-                self.holding = False
-            elif (t - (self.lastTime or 0)) < self.timeout:
-                self.holding = True
-            else:
-                self.lastTime = t
-            self.sendFeedback(self.holding)
+        super().updateValueFromEvent(event)
+
+        if self.double_click:
+            self.holding = True
+        elif self.holding and self.value:
+            self.holding = False
         if self.holding:
             self.value = 1
+        self.sendFeedback(self.value)
 
 class ProgramChangeDataKnobWrapper:
     def __init__(self, channel):
@@ -115,8 +106,8 @@ encoders = [ImpulseEncoder(channel=1, ccNumber=i, index=i,
 
 dataKnob = ProgramChangeDataKnobWrapper(channel=0)
 
-trackButtons = [MIDIControl(channel=0, ccNumber=i+0x09, index=i,
-    name='TrackButton_{}'.format(i)) for i in range(8)]
+trackButtons = [MIDIButton(channel=0, ccNumber=i+0x09, index=i,
+    name='TrackButton_{}'.format(i), lazy_feedback=True) for i in range(8)]
 
 masterButton = DoubleClickHoldControl(channel=0, ccNumber=0x09 + 8, index=8, name='MasterButton')
 
