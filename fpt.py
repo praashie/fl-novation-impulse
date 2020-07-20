@@ -38,7 +38,8 @@ transportMap = { # (shift, loop, master)
         controls.play: FPTButton("Play"),
         controls.record: FPTButton("Record"),
     }, (True, False, False): { # Shift on, Loop off
-        controls.loop: FPTDualButton("PunchIn", "PunchOut")
+        controls.loop: FPTDualButton("PunchIn", "PunchOut"),
+        controls.record: FPTButton("Overdub")
     }, (False, True, False): { # Shift off, Loop on
         controls.record: FPTButton("LoopRecord"),
         controls.play: FPTButton("Loop"),
@@ -59,7 +60,8 @@ transportMap = { # (shift, loop, master)
     }, (True, False, True): { # Master + Shift
         controls.loop: FPTDualButton("PunchIn", "PunchOut")
     }, (True, True, True): { # All three
-        controls.loop: FPTDualButton("PunchIn", "PunchOut")
+        controls.loop: FPTDualButton("PunchIn", "PunchOut"),
+        controls.masterButton: FPTButton("CountDown")
     }, None: { # Default
     }
 }
