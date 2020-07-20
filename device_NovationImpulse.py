@@ -46,7 +46,7 @@ from flatmate.control import MIDIControl
 from flatmate.hooker import *
 from flatmate.lcd import MidiLCD, MidiLCDParts
 from flatmate.midi import setEventMidiChannel
-from flatmate.mixer import MixerController
+from flatmate.mixer import MixerController, MixerTrack
 
 
 import controls
@@ -77,7 +77,7 @@ class ImpulseBase:
             f.set_callback(self.onFader)
 
         for b in controls.trackButtons:
-                b.set_callback(self.onTrackButton)
+            b.set_callback(self.onTrackButton)
 
         for p in controls.clipPads:
             p.set_callback(self.onClipPad)
@@ -87,7 +87,6 @@ class ImpulseBase:
         self.encoderSwitcher = ImpulseModeSwitcher(
                 modes=EncoderMode.Switchers,
                 invert=INVERT_PAGE_SHIFT)
-        self.encoderSwitcher.set(EncoderMode.Mixer)
         self.encoderSwitcher.onModeChangeCallback = self.onSwitcherModeChange
         self.encoderSwitcher.onPageChangeCallback = self.onEncoderPageChange
         self.encoderSwitcher.page = 0
@@ -95,7 +94,6 @@ class ImpulseBase:
         self.faderSwitcher = ImpulseModeSwitcher(
                 modes=FaderMode.Switchers,
                 invert=INVERT_PAGE_SHIFT)
-        self.faderSwitcher.set(FaderMode.Mixer)
         self.faderSwitcher.onModeChangeCallback = self.onSwitcherModeChange
         self.faderSwitcher.onPageChangeCallback = self.onMixerPageChange
 
@@ -123,6 +121,8 @@ class ImpulseBase:
     def OnInit(self):
         if device.isAssigned():
             self.sysex(IMPULSE_INIT)
+            self.encoderSwitcher.set(EncoderMode.Mixer)
+            self.faderSwitcher.set(FaderMode.Mixer)
             self.lcdText(ui.getProgTitle())
 
     def OnDeInit(self):
@@ -248,8 +248,7 @@ class ImpulseBase:
             direction = '>' if encoder.value > 0 else '<'
             display_message += ' ' + direction
         elif i == 4:
-            selected_track = (mixer.trackNumber() + encoder.value) % mixer.trackCount()
-            mixer.setTrackNumber(selected_track)
+            selected_track = self.moveSelectedMixerTrack(encoder.value)
             display_message = mixer.getTrackName(selected_track)
             display_value = selected_track
         elif i == 5:
@@ -259,13 +258,13 @@ class ImpulseBase:
             display_value = selected_pattern
         elif i == 6:
             group_channel_count = channels.channelCount(0)
-            current_channel = channels.channelNumber(1)
+            current_channel = channels.channelNumber(0)
             selected_group_index = self.cycleChannels(
                 current=0,
                 count=group_channel_count,
                 condition_func=lambda c: channels.getChannelIndex(c) == current_channel
-            )
-            selected_index = channels.getChannelIndex((selected_group_index + encoder.value) % group_channel_count)
+            ) or 0
+            selected_index = (selected_group_index + encoder.value) % group_channel_count
             channels.deselectAll()
             channels.selectChannel(selected_index)
             display_message = channels.getChannelName(selected_index)
@@ -279,12 +278,15 @@ class ImpulseBase:
         if self.faderSwitcher.mode == FaderMode.Mixer:
             fader_float = fader.value / 127.0
             if fader.index == 8: # Master
-                target_event = rec.MainVol
+                if controls.masterButton.value:
+                    target_event = rec.MainVol
+                else:
+                    target_event = MixerTrack(mixer.trackNumber()).volume
             else:
                 target_event = self.mixer.tracks[fader.index].volume
 
             if self.tryControllingTargetEvent(target_event, fl_event=event):
-                target_event.setValue(fader.value / 127.0, max=1.25)
+                target_event.setValue(fader_float, max=1.25)
             self.displayEventFeedback(target_event, fader, max=1.25)
 
         event.handled = True
@@ -308,19 +310,20 @@ class ImpulseBase:
                 Alakazam.activate()
             else:
                 Alakazam.deactivate()
+
+            if control.holding:
+                self.lcdText("MstrLock")
         self.onTransport(control, event)
 
     def onMixerPageChange(self, control, event):
         event.handled = True
         if control == controls.mixerBankNext:
             self.mixer.bankUp()
-            self.mixer.selectBank(focus=self.mixer.track_width)
         elif control == controls.mixerBankPrevious:
             self.mixer.bankDown()
-            self.mixer.selectBank()
 
-            self.lcdValueText(self.mixer.bank_start)
-
+        self.mixer.selectBank()
+        self.lcdValueText(self.mixer.bank_start)
         self.lcdText(self.mixer.tracks[0].getName())
 
     def onEncoderPageChange(self, control, event):
@@ -341,20 +344,22 @@ class ImpulseBase:
 
         if control.value == 0:
             return
-        elif controls.masterButton.value:
+        if controls.masterButton.value:
             if control.index <= midi.widBrowser:
                 ui.showWindow(control.index)
-        elif controls.shift.value:
-            track.select(single=True)
-            self.selectMixerTrackChannel(track.index)
-        elif self.soloMode:
-            track.solo(flags=midi.fxSoloModeWithSourceTracks + midi.fxSoloModeWithDestTracks)
+                self.lcdText(ui.getFocusedFormCaption())
         else:
-            track.mute()
+            if self.soloMode:
+                track.select(single=True)
+                self.selectMixerTrackChannel(track.index)
+            elif control.double_click:
+                track.solo(flags=midi.fxSoloModeWithSourceTracks + midi.fxSoloModeWithDestTracks)
+            else:
+                track.mute()
 
-        self.refreshTrackLed(control.index, track)
-        self.lcdText(track.getName())
-        self.lcdValueText(track.index)
+            self.refreshTrackLed(control.index, track)
+            self.lcdText(track.getName())
+            self.lcdValueText(track.index)
 
     def onMasterButton(self, control, event):
         event.handled = True
@@ -392,8 +397,9 @@ class ImpulseBase:
         self.refreshPads()
 
     def refreshTrackLeds(self):
-        for i, track in enumerate(self.mixer.tracks):
-            self.refreshTrackLed(i, track)
+        if self.faderSwitcher.mode == FaderMode.Mixer:
+            for i, track in enumerate(self.mixer.tracks):
+                self.refreshTrackLed(i, track)
 
     def refreshPads(self):
         for pad in controls.clipPads:
@@ -424,6 +430,11 @@ class ImpulseBase:
         count = channels.channelCount()
         return self.cycleChannels(current, count,
                 lambda i: channels.getTargetFxTrack(i) == track_index)
+
+    def moveSelectedMixerTrack(self, offset):
+        selected_track = (mixer.trackNumber() + offset) % mixer.trackCount()
+        mixer.setTrackNumber(selected_track)
+        return selected_track
 
     def cycleChannels(self, current, count, condition_func):
         for i in range(count):
