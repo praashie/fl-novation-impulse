@@ -44,7 +44,7 @@ from flatmate import flags
 from flatmate import snippets
 from flatmate.control import MIDIControl
 from flatmate.hooker import *
-from flatmate.lcd import MidiLCD
+from flatmate.lcd import MidiLCD, MidiLCDParts
 from flatmate.midi import setEventMidiChannel
 from flatmate.mixer import MixerController
 
@@ -99,7 +99,7 @@ class ImpulseBase:
         self.faderSwitcher.onModeChangeCallback = self.onSwitcherModeChange
         self.faderSwitcher.onPageChangeCallback = self.onMixerPageChange
 
-        self.lcd_text = MidiLCD(sysex_prefix=SYSEX_HEADER + h('08'),
+        self.lcd_text = MidiLCDParts(sysex_prefix=SYSEX_HEADER + h('08'),
                 width=8, minInterval=LCD_THROTTLE)
         self.lcd_value = MidiLCD(sysex_prefix=SYSEX_HEADER + h('09'),
                 width=3, minInterval=LCD_THROTTLE)
@@ -367,16 +367,20 @@ class ImpulseBase:
 
     def onMixerTrackButton(self, control, event):
         if control == controls.mixerTrackNext:
-            self.mixer.trackUp()
-            self.mixer.selectBank(focus=self.mixer.track_width)
+            selected_track = self.moveSelectedMixerTrack(1)
         elif control == controls.mixerTrackPrevious:
-            self.mixer.trackDown()
-            self.mixer.selectBank()
+            selected_track = self.moveSelectedMixerTrack(-1)
+        self.lcdText(mixer.getTrackName(selected_track))
 
     def displayEventFeedback(self, recEvent, controller=None, min=0.0, max=1.0):
         context, sep, parameter = recEvent.getSplitName()
 
-        text_parts = (context, '-', parameter, ':', recEvent.getValueString())
+        if context and parameter:
+            parameter_full = (context, '-', parameter)
+        else:
+            parameter_full = (context or parameter,)
+
+        text_parts = parameter_full + (':', recEvent.getValueString())
         self.lcd_text.writeParts(text_parts)
 
         if controller is not None:
