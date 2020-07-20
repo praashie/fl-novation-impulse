@@ -1,0 +1,3 @@
+[submodule "flatmate"]
+	path = flatmate
+	url = https://github.com/praashie/flatmate
