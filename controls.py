@@ -3,6 +3,10 @@
 from flatmate.control import MIDIControl, MIDIButton
 from flatmate.hooker import Hooker
 
+import _random as random
+
+random_generator = random.Random()
+
 class ImpulseEncoder(MIDIControl):
     def updateValueFromEvent(self, event):
         self.value = event.controlVal - 0x40
@@ -35,6 +39,13 @@ class ImpulsePad(MIDIControl):
     current_color = 0
     flashing = False
 
+    PEAK_COLOR_TABLE = [
+        (0, 0), (0, 1),
+        (0, 1), (0, 2), (0, 3),
+        (1, 3), (2, 3), (3, 3),
+        (3, 2), (3, 1), (3, 0)
+    ]
+
     def setColor(self, red=0, green=0, flash=None):
         red = red & 0b11
         green = green & 0b11
@@ -59,6 +70,18 @@ class ImpulsePad(MIDIControl):
         else:
             self.flashing = flash
         self._update()
+
+    def setPeakColor(self, peak_value):
+        range_max = (len(self.PEAK_COLOR_TABLE) - 1)
+
+        # Dithering
+        peak_value += 0.98 * (random_generator.random() - 0.5) / range_max
+        peak_value = max(0.0, min(1.0, peak_value))
+
+        offset = int(peak_value * range_max)
+        red, green = self.PEAK_COLOR_TABLE[offset]
+
+        self.setColor(red=red, green=green)
 
 class DoubleClickHoldControl(MIDIButton):
     holding = False
@@ -114,7 +137,7 @@ masterButton = DoubleClickHoldControl(channel=0, ccNumber=0x09 + 8, index=8, nam
 clipPads = [ImpulsePad(channel=0, ccNumber=i+0x3C, index=i,
     name='ClipPad_{}'.format(i + 1)) for i in range(8)]
 
-modwheel = MIDIControl(channel=2, ccNumber=0x01, name='ModWheel')
+# modwheel = MIDIControl(channel=2, ccNumber=0x01, name='ModWheel')
 
 controls.extend(faders)
 controls.extend(encoders)

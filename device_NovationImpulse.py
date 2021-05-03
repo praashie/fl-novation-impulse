@@ -48,7 +48,6 @@ from flatmate.lcd import MidiLCD, MidiLCDParts
 from flatmate.midi import setEventMidiChannel
 from flatmate.mixer import MixerController, MixerTrack
 
-
 import controls
 from modes import EncoderMode, FaderMode, ImpulseModeSwitcher
 
@@ -124,6 +123,7 @@ class ImpulseBase:
             self.encoderSwitcher.set(EncoderMode.Mixer)
             self.faderSwitcher.set(FaderMode.Mixer)
             self.lcdText(ui.getProgTitle())
+            device.setHasMeters()
 
     def OnDeInit(self):
         if device.isAssigned():
@@ -132,11 +132,14 @@ class ImpulseBase:
     def OnUpdateBeatIndicator(self, value):
         controls.masterButton.sendFeedback(value)
         if value > 0 and self.timeDisplay:
-            if transport.getLoopMode():
-                timeText = arrangement.currentTimeHint(1, arrangement.currentTime(0))
-            else:
-                timeText = transport.getSongPosHint()
-            self.lcdText(timeText, resetTimeDisplay=False)
+            self.displayTime()
+
+    def displayTime(self):
+        if transport.getLoopMode():
+            timeText = arrangement.currentTimeHint(1, arrangement.currentTime(0))
+        else:
+            timeText = transport.getSongPosHint()
+        self.lcdText(timeText, resetTimeDisplay=False)
 
     def OnNoteOn(self, event):
         if LCD_TEST:
@@ -179,7 +182,8 @@ class ImpulseBase:
                 transport.setSongPos(next_pos_ticks / (song_length_ticks or 1))
             else:
                 transport.continuousMovePos(5 * direction, control.value * 2)
-
+                transport.continuousMove(direction, control.value * 1)
+            self.displayTime()
         event.handled = True
 
     def onSwitcherModeChange(self, mode, event):
@@ -190,11 +194,13 @@ class ImpulseBase:
         False: {
             0: ("Jog", "Jog"),
             1: ("HZoomJog", "HZoom"),
+            2: ("PreviousNext", "PrevNext"),
             9001: ("Jog", "Jog")
         },
         True: {
             0: ("Jog2", "Jog2"),
             1: ("VZoomJog", "VZoom"),
+            2: ("MarkerSelJog", "MarkSel"),
             9001: ("MoveJog", "Move")
         }
     }
@@ -394,6 +400,8 @@ class ImpulseBase:
 
     def OnIdle(self):
         self.refreshTrackLeds()
+
+    def OnUpdateMeters(self):
         self.refreshPads()
 
     def refreshTrackLeds(self):
@@ -402,18 +410,21 @@ class ImpulseBase:
                 self.refreshTrackLed(i, track)
 
     def refreshPads(self):
-        for pad in controls.clipPads:
+        for i, pad in enumerate(controls.clipPads):
             if controls.shift.value and pad.index == 4:
                 pad.setColor(green=2, flash=False)
             else:
-                pad.setColor(red=0, green=0, flash=False)
+                track = self.mixer.tracks[i]
+                pad.setPeakColor(track.getPeaks())
 
     def refreshTrackLed(self, index, track):
+        peak = track.getPeaks()
         if self.soloMode:
-            value = (track.getPeaks() > 0.1)
+            led_value = (peak > 0.1)
         else:
-            value = 1 - track.isMuted()
-        controls.trackButtons[index].sendFeedback(value)
+            led_value = 1 - track.isMuted()
+        controls.trackButtons[index].sendFeedback(led_value)
+        controls.faders[index].sendFeedback(max(0, min(127, int(127 * peak))))
 
     def onClipPad(self, control, event):
         if control.index == 4 and controls.shift.value:
