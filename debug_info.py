@@ -4,7 +4,7 @@ header = "=" * 80
 
 message = f"""
     MIDI Script for Novation Impulse 25/49/61 by Praash
-    Version: 0.5.0
+    Version: 0.5.1
     Flatmate version: {flatmate_version}
 
     Get updates and report issues at GitHub:
