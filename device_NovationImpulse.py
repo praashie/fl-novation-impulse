@@ -3,6 +3,9 @@
 # Author: Praash
 # https://github.com/praashie/fl-novation-impulse
 
+from debug_info import print_debug_info
+
+print_debug_info()
 
 # Tweak these options to your liking.
 
