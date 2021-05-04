@@ -4,8 +4,6 @@ This script is under development.
 
 # Installation
 
-Download and install [FLatmate](https://github.com/praashie/flatmate).
-
 ## Using Git or GitHub Desktop:
 Clone the repository directly under your user data script folder.
 
@@ -13,6 +11,8 @@ Clone the repository directly under your user data script folder.
 [Download](https://github.com/praashie/fl-novation-impulse/releases) the latest release, and extract the zip file under your user data script folder. Make sure to create a new folder.
 
 # Usage
+
+**Assign your Impulse a port number, and remember to enable both midi input AND output.**
 
 ## Modifier keys
 
