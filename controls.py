@@ -5,6 +5,7 @@ from flatmate.hooker import Hooker
 
 import _random as random
 
+import device
 random_generator = random.Random()
 
 class ImpulseEncoder(MIDIControl):
@@ -137,7 +138,13 @@ masterButton = DoubleClickHoldControl(channel=0, ccNumber=0x09 + 8, index=8, nam
 clipPads = [ImpulsePad(channel=0, ccNumber=i+0x3C, index=i,
     name='ClipPad_{}'.format(i + 1)) for i in range(8)]
 
-# modwheel = MIDIControl(channel=2, ccNumber=0x01, name='ModWheel')
+modwheel = MIDIControl(channel=2, ccNumber=0x01, name='ModWheel')
+
+@modwheel.set_callback
+def modwheel_fix(wheel, event):
+    event.midiChan = 0
+    device.processMIDICC(event)
+    event.handled = True
 
 controls.extend(faders)
 controls.extend(encoders)
