@@ -358,10 +358,10 @@ class ImpulseBase:
                 ui.showWindow(control.index)
                 self.lcdText(ui.getFocusedFormCaption())
         else:
-            if self.soloMode:
+            if controls.shift.value:
                 track.select(single=True)
                 self.selectMixerTrackChannel(track.index)
-            elif control.double_click:
+            elif self.soloMode:
                 track.solo(flags=midi.fxSoloModeWithSourceTracks + midi.fxSoloModeWithDestTracks)
             else:
                 track.mute()
@@ -455,7 +455,7 @@ class ImpulseBase:
             # If multiple channels match, select the next matching one
             channel_index = (current + i) % count
             if condition_func(channel_index):
-                channels.selectChannel(channel_index, 1)
+                channels.selectOneChannel(channel_index)
                 return channel_index
 
 
